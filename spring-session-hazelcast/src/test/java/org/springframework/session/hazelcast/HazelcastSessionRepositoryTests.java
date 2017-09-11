@@ -16,30 +16,6 @@
 
 package org.springframework.session.hazelcast;
 
-import java.time.Duration;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.TimeUnit;
-
-import com.hazelcast.core.IMap;
-import com.hazelcast.query.impl.predicates.EqualPredicate;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.ExpectedException;
-import org.junit.runner.RunWith;
-import org.mockito.Mock;
-import org.mockito.junit.MockitoJUnitRunner;
-
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.authority.AuthorityUtils;
-import org.springframework.session.FindByIndexNameSessionRepository;
-import org.springframework.session.MapSession;
-import org.springframework.session.hazelcast.HazelcastSessionRepository.HazelcastSession;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isA;
@@ -47,6 +23,30 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyZeroInteractions;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
+
+import org.junit.Before;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.ExpectedException;
+import org.junit.runner.RunWith;
+import org.mockito.Mock;
+import org.mockito.junit.MockitoJUnitRunner;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.authority.AuthorityUtils;
+import org.springframework.session.FindByIndexNameSessionRepository;
+import org.springframework.session.MapSession;
+import org.springframework.session.hazelcast.HazelcastSessionRepository.HazelcastSession;
+
+import com.hazelcast.core.IMap;
+import com.hazelcast.query.impl.predicates.EqualPredicate;
 
 /**
  * Tests for {@link HazelcastSessionRepository}.
@@ -65,11 +65,15 @@ public class HazelcastSessionRepositoryTests {
 	@Mock
 	private IMap<String, MapSession> sessions;
 
+	@Mock
+	private IMap<String, Instant> sessionLastAccessedTimes;
+
 	private HazelcastSessionRepository repository;
 
 	@Before
 	public void setUp() {
-		this.repository = new HazelcastSessionRepository(this.sessions);
+		this.repository = new HazelcastSessionRepository(this.sessions,
+				this.sessionLastAccessedTimes);
 	}
 
 	@Test
@@ -77,7 +81,7 @@ public class HazelcastSessionRepositoryTests {
 		this.thrown.expect(IllegalArgumentException.class);
 		this.thrown.expectMessage("Sessions IMap must not be null");
 
-		new HazelcastSessionRepository(null);
+		new HazelcastSessionRepository(null, null);
 	}
 
 	@Test

@@ -16,15 +16,13 @@
 
 package docs;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import java.time.Duration;
+import java.time.Instant;
 import java.util.concurrent.ConcurrentHashMap;
 
-import com.hazelcast.config.Config;
-import com.hazelcast.core.Hazelcast;
-import com.hazelcast.core.HazelcastInstance;
-import com.hazelcast.core.IMap;
 import org.junit.Test;
-
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
@@ -40,7 +38,10 @@ import org.springframework.session.web.http.SessionRepositoryFilter;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.web.context.support.AnnotationConfigWebApplicationContext;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import com.hazelcast.config.Config;
+import com.hazelcast.core.Hazelcast;
+import com.hazelcast.core.HazelcastInstance;
+import com.hazelcast.core.IMap;
 
 /**
  * @author Rob Winch
@@ -158,8 +159,11 @@ public class IndexDocTests {
 		IMap<String, MapSession> sessions = hazelcastInstance
 				.getMap("spring:session:sessions");
 
+		IMap<String, Instant> sessionLastAccessedTimes = hazelcastInstance
+				.getMap("spring:session:lastaccessedtimes");
+
 		HazelcastSessionRepository repository =
-				new HazelcastSessionRepository(sessions);
+				new HazelcastSessionRepository(sessions, sessionLastAccessedTimes);
 		// end::new-hazelcastsessionrepository[]
 	}
 

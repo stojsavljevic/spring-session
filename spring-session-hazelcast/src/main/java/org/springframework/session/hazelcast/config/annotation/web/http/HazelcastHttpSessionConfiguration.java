@@ -16,10 +16,8 @@
 
 package org.springframework.session.hazelcast.config.annotation.web.http;
 
+import java.time.Instant;
 import java.util.Map;
-
-import com.hazelcast.core.HazelcastInstance;
-import com.hazelcast.core.IMap;
 
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
@@ -33,6 +31,9 @@ import org.springframework.session.hazelcast.HazelcastFlushMode;
 import org.springframework.session.hazelcast.HazelcastSessionRepository;
 import org.springframework.session.web.http.SessionRepositoryFilter;
 
+import com.hazelcast.core.HazelcastInstance;
+import com.hazelcast.core.IMap;
+
 /**
  * Exposes the {@link SessionRepositoryFilter} as a bean named
  * "springSessionRepositoryFilter". In order to use this a single
@@ -40,6 +41,7 @@ import org.springframework.session.web.http.SessionRepositoryFilter;
  *
  * @author Tommy Ludwig
  * @author Vedran Pavic
+ * @author Aleksandar Stojsavljevic
  * @since 1.1
  * @see EnableHazelcastHttpSession
  */
@@ -49,9 +51,13 @@ public class HazelcastHttpSessionConfiguration extends SpringHttpSessionConfigur
 
 	static final String DEFAULT_SESSION_MAP_NAME = "spring:session:sessions";
 
+	static final String DEFAULT_SESSION_LAST_ACCESSED_TIME_MAP_NAME = "spring:session:lastaccessedtimes";
+
 	private Integer maxInactiveIntervalInSeconds;
 
 	private String sessionMapName = DEFAULT_SESSION_MAP_NAME;
+
+	private String sessionLastAccessedTimeMapName = DEFAULT_SESSION_LAST_ACCESSED_TIME_MAP_NAME;
 
 	private HazelcastFlushMode hazelcastFlushMode = HazelcastFlushMode.ON_SAVE;
 
@@ -61,8 +67,10 @@ public class HazelcastHttpSessionConfiguration extends SpringHttpSessionConfigur
 			ApplicationEventPublisher eventPublisher) {
 		IMap<String, MapSession> sessions = hazelcastInstance.getMap(
 				this.sessionMapName);
+		IMap<String, Instant> sessionLastAccessedTimes = hazelcastInstance
+				.getMap(this.sessionLastAccessedTimeMapName);
 		HazelcastSessionRepository sessionRepository = new HazelcastSessionRepository(
-				sessions);
+				sessions, sessionLastAccessedTimes);
 		sessionRepository.setApplicationEventPublisher(eventPublisher);
 		sessionRepository.setDefaultMaxInactiveInterval(
 				this.maxInactiveIntervalInSeconds);

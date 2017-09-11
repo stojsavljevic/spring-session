@@ -64,9 +64,12 @@ import org.springframework.util.Assert;
  *
  * IMap{@code <String, MapSession>} sessions = hazelcastInstance
  *         .getMap("spring:session:sessions");
+ *         
+ * IMap{@code <String, Instant>} sessionLastAccessedTime = hazelcastInstance
+ *         .getMap("spring:session:lastaccessedtimes");        
  *
  * HazelcastSessionRepository sessionRepository =
- *         new HazelcastSessionRepository(sessions);
+ *         new HazelcastSessionRepository(sessions, sessionLastAccessedTime);
  * </pre>
  *
  * In order to support finding sessions by principal name using
@@ -109,9 +112,9 @@ import org.springframework.util.Assert;
  */
 public class HazelcastSessionRepository implements
 		FindByIndexNameSessionRepository<HazelcastSessionRepository.HazelcastSession>,
-		EntryAddedListener<String, MapSession>,
-		EntryEvictedListener<String, MapSession>,
-		EntryRemovedListener<String, MapSession> {
+		EntryAddedListener<String, Instant>,
+		EntryEvictedListener<String, Instant>,
+		EntryRemovedListener<String, Instant> {
 
 	/**
 	 * The principal name custom attribute name.
@@ -121,6 +124,8 @@ public class HazelcastSessionRepository implements
 	private static final Log logger = LogFactory.getLog(HazelcastSessionRepository.class);
 
 	private final IMap<String, MapSession> sessions;
+
+	private final IMap<String, Instant> sessionsLastAccessedTime;
 
 	private HazelcastFlushMode hazelcastFlushMode = HazelcastFlushMode.ON_SAVE;
 
@@ -142,19 +147,22 @@ public class HazelcastSessionRepository implements
 
 	private String sessionListenerId;
 
-	public HazelcastSessionRepository(IMap<String, MapSession> sessions) {
+	public HazelcastSessionRepository(IMap<String, MapSession> sessions,
+			IMap<String, Instant> sessionsLastAccessedTime) {
 		Assert.notNull(sessions, "Sessions IMap must not be null");
+		Assert.notNull(sessionsLastAccessedTime, "SessionsLastAccessedTime IMap must not be null");
 		this.sessions = sessions;
+		this.sessionsLastAccessedTime = sessionsLastAccessedTime;
 	}
 
 	@PostConstruct
 	private void init() {
-		this.sessionListenerId = this.sessions.addEntryListener(this, true);
+		this.sessionListenerId = this.sessionsLastAccessedTime.addEntryListener(this, true);
 	}
 
 	@PreDestroy
 	private void close() {
-		this.sessions.removeEntryListener(this.sessionListenerId);
+		this.sessionsLastAccessedTime.removeEntryListener(this.sessionListenerId);
 	}
 
 	/**
@@ -207,9 +215,13 @@ public class HazelcastSessionRepository implements
 			session.originalId = session.getId();
 		}
 		if (session.isChanged()) {
-			this.sessions.put(session.getId(), session.getDelegate(),
-					session.getMaxInactiveInterval().getSeconds(), TimeUnit.SECONDS);
+			this.sessions.put(session.getId(), session.getDelegate());
 			session.markUnchanged();
+		}
+		if (session.isChangedLastAccessedTime()) {
+			this.sessionsLastAccessedTime.put(session.getId(), session.getLastAccessedTime(),
+					session.getMaxInactiveInterval().getSeconds(), TimeUnit.SECONDS);
+			session.markUnchangedLastAccessedTime();
 		}
 	}
 
@@ -222,11 +234,17 @@ public class HazelcastSessionRepository implements
 			deleteById(saved.getId());
 			return null;
 		}
-		return new HazelcastSession(saved);
+		Instant instant = this.sessionsLastAccessedTime.get(id);
+		if (instant == null) {
+			// TODO Alex da li citati odavde u ovom slucaju?
+			instant = saved.getLastAccessedTime();
+		}
+		return new HazelcastSession(saved, instant);
 	}
 
 	public void deleteById(String id) {
 		this.sessions.remove(id);
+		this.sessionsLastAccessedTime.remove(id);
 	}
 
 	public Map<String, HazelcastSession> findByIndexNameAndIndexValue(
@@ -239,32 +257,49 @@ public class HazelcastSessionRepository implements
 		Map<String, HazelcastSession> sessionMap = new HashMap<>(
 				sessions.size());
 		for (MapSession session : sessions) {
-			sessionMap.put(session.getId(), new HazelcastSession(session));
+			Instant instant = this.sessionsLastAccessedTime.get(session.getId());
+			if (instant == null) {
+				// TODO Alex da li citati odavde u ovom slucaju?
+				instant = session.getLastAccessedTime();
+			}
+			sessionMap.put(session.getId(), new HazelcastSession(session, instant));
 		}
 		return sessionMap;
 	}
 
-	public void entryAdded(EntryEvent<String, MapSession> event) {
-		if (logger.isDebugEnabled()) {
-			logger.debug("Session created with id: " + event.getValue().getId());
+	public void entryAdded(EntryEvent<String, Instant> event) {
+		// TODO Alex - sredi ovo
+		MapSession mapSession = this.sessions.get(event.getKey());
+		if(mapSession != null) {
+			if (logger.isDebugEnabled()) {
+				logger.debug("Session created with id: " + mapSession.getId());
+			}
+			this.eventPublisher.publishEvent(new SessionCreatedEvent(this, mapSession));
 		}
-		this.eventPublisher.publishEvent(new SessionCreatedEvent(this, event.getValue()));
 	}
 
-	public void entryEvicted(EntryEvent<String, MapSession> event) {
-		if (logger.isDebugEnabled()) {
-			logger.debug("Session expired with id: " + event.getOldValue().getId());
+	public void entryEvicted(EntryEvent<String, Instant> event) {
+		// TODO Alex - sredi ovo
+		MapSession mapSession = this.sessions.get(event.getKey());
+		if(mapSession != null) {
+			if (logger.isDebugEnabled()) {
+				logger.debug("Session expired with id: " + mapSession.getId());
+			}
+			this.sessions.remove(mapSession.getId());
+			this.eventPublisher.publishEvent(new SessionExpiredEvent(this, mapSession));
 		}
-		this.eventPublisher
-				.publishEvent(new SessionExpiredEvent(this, event.getOldValue()));
 	}
 
-	public void entryRemoved(EntryEvent<String, MapSession> event) {
-		if (logger.isDebugEnabled()) {
-			logger.debug("Session deleted with id: " + event.getOldValue().getId());
+	public void entryRemoved(EntryEvent<String, Instant> event) {
+		// TODO Alex - sredi ovo
+		MapSession mapSession = this.sessions.get(event.getKey());
+		if(mapSession != null) {
+			if (logger.isDebugEnabled()) {
+				logger.debug("Session deleted with id: " + mapSession.getId());
+			}
+			this.sessions.remove(mapSession.getId());
+			this.eventPublisher.publishEvent(new SessionDeletedEvent(this, mapSession));
 		}
-		this.eventPublisher
-				.publishEvent(new SessionDeletedEvent(this, event.getOldValue()));
 	}
 
 	/**
@@ -277,32 +312,48 @@ public class HazelcastSessionRepository implements
 
 		private final MapSession delegate;
 		private boolean changed;
+		private boolean changedLastAccessedTime;
 		private String originalId;
+		private Instant lastAccessedTime;
 
 		/**
 		 * Creates a new instance ensuring to mark all of the new attributes to be
 		 * persisted in the next save operation.
 		 */
 		HazelcastSession() {
-			this(new MapSession());
+			this(new MapSession(), null);
 			this.changed = true;
+			this.changedLastAccessedTime = true;
 			flushImmediateIfNecessary();
 		}
 
 		/**
-		 * Creates a new instance from the provided {@link MapSession}.
-		 * @param cached the {@link MapSession} that represents the persisted session that
-		 * was retrieved. Cannot be {@code null}.
+		 * Creates a new instance from the provided {@link MapSession} and
+		 * {@link Instant}.
+		 * 
+		 * @param cached
+		 *            the {@link MapSession} that represents the persisted
+		 *            session that was retrieved. Cannot be {@code null}.
+		 * @param lastAccessedTime
+		 *            the {@link Instant} that represents the time when the
+		 *            persisted session that was last accessed. If {@code null}
+		 *            is provided current time will be used.
 		 */
-		HazelcastSession(MapSession cached) {
+		HazelcastSession(MapSession cached, Instant lastAccessedTime) {
 			Assert.notNull(cached, "MapSession cannot be null");
 			this.delegate = cached;
 			this.originalId = cached.getId();
+			// TODO Alex da li dozvoliti null za lastAccessedTime?
+			setLastAccessedTime(lastAccessedTime);
 		}
 
 		public void setLastAccessedTime(Instant lastAccessedTime) {
-			this.delegate.setLastAccessedTime(lastAccessedTime);
-			this.changed = true;
+			if (lastAccessedTime != null) {
+				this.lastAccessedTime = lastAccessedTime;
+			} else {
+				this.lastAccessedTime = Instant.now();
+			}
+			this.changedLastAccessedTime = true;
 			flushImmediateIfNecessary();
 		}
 
@@ -319,13 +370,13 @@ public class HazelcastSessionRepository implements
 		}
 
 		public String changeSessionId() {
+			// TODO Alex kako ovo handlovati?
 			this.changed = true;
-			String result = this.delegate.changeSessionId();
-			return result;
+			return this.delegate.changeSessionId();
 		}
 
 		public Instant getLastAccessedTime() {
-			return this.delegate.getLastAccessedTime();
+			return this.lastAccessedTime;
 		}
 
 		public void setMaxInactiveInterval(Duration interval) {
@@ -364,6 +415,14 @@ public class HazelcastSessionRepository implements
 
 		void markUnchanged() {
 			this.changed = false;
+		}
+		
+		boolean isChangedLastAccessedTime() {
+			return this.changedLastAccessedTime;
+		}
+
+		void markUnchangedLastAccessedTime() {
+			this.changedLastAccessedTime = false;
 		}
 
 		MapSession getDelegate() {
