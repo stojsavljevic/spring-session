@@ -31,6 +31,7 @@ import org.springframework.session.MapSession;
 import org.springframework.session.config.annotation.web.http.SpringHttpSessionConfiguration;
 import org.springframework.session.hazelcast.HazelcastFlushMode;
 import org.springframework.session.hazelcast.HazelcastSessionRepository;
+import org.springframework.session.hazelcast.entryprocessor.SessionState;
 import org.springframework.session.web.http.SessionRepositoryFilter;
 
 /**
@@ -59,10 +60,10 @@ public class HazelcastHttpSessionConfiguration extends SpringHttpSessionConfigur
 	public HazelcastSessionRepository sessionRepository(
 			HazelcastInstance hazelcastInstance,
 			ApplicationEventPublisher eventPublisher) {
-		IMap<String, MapSession> sessions = hazelcastInstance.getMap(
+		IMap<String, SessionState> sessions = hazelcastInstance.getMap(
 				this.sessionMapName);
 		HazelcastSessionRepository sessionRepository = new HazelcastSessionRepository(
-				sessions);
+				sessions, hazelcastInstance);
 		sessionRepository.setApplicationEventPublisher(eventPublisher);
 		sessionRepository.setDefaultMaxInactiveInterval(
 				this.maxInactiveIntervalInSeconds);

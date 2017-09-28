@@ -69,7 +69,7 @@ public class HazelcastSessionRepositoryTests {
 
 	@Before
 	public void setUp() {
-		this.repository = new HazelcastSessionRepository(this.sessions);
+//		this.repository = new HazelcastSessionRepository(this.sessions, null);
 	}
 
 	@Test
@@ -77,7 +77,7 @@ public class HazelcastSessionRepositoryTests {
 		this.thrown.expect(IllegalArgumentException.class);
 		this.thrown.expectMessage("Sessions IMap must not be null");
 
-		new HazelcastSessionRepository(null);
+		new HazelcastSessionRepository(null, null);
 	}
 
 	@Test
