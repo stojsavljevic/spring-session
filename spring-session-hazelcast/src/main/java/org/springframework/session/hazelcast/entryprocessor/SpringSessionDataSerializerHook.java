@@ -5,12 +5,12 @@ import com.hazelcast.internal.serialization.impl.FactoryIdHelper;
 import com.hazelcast.nio.serialization.DataSerializableFactory;
 import com.hazelcast.nio.serialization.IdentifiedDataSerializable;
 
-public class WebDataSerializerHook implements DataSerializerHook {
+public class SpringSessionDataSerializerHook implements DataSerializerHook {
 
     /**
      * The constant F_ID.
      */
-    public static final int F_ID = FactoryIdHelper.getFactoryId(FactoryIdHelper.WEB_DS_FACTORY, F_ID_OFFSET_WEBMODULE);
+    public static final int F_ID = FactoryIdHelper.getFactoryId("spring.session.hazlecast", F_ID_OFFSET_WEBMODULE);
 
     /**
      * The constant SESSION_UPDATE.
@@ -31,11 +31,18 @@ public class WebDataSerializerHook implements DataSerializerHook {
     /**
      * The constant GET_SESSION_STATE.
      */
-    public static final int GET_SESSION_STATE = 5;
+    public static final int GET_SESSION = 5;
     /**
      * The constant SESSION_STATE.
      */
     public static final int SESSION_STATE = 6;
+    
+    public static final int GET_LAT = 7;
+    public static final int SET_LAT = 8;
+    public static final int GET_CT = 9;
+    public static final int SET_CT = 10;
+    public static final int SET_SESSION = 11;
+    public static final int DOES_SESSION_EXIST = 12;
 
     @Override
     public DataSerializableFactory createFactory() {
@@ -59,14 +66,32 @@ public class WebDataSerializerHook implements DataSerializerHook {
             case GET_ATTRIBUTE:
                 dataSerializable = new GetAttributeEntryProcessor();
                 break;
-//            case GET_ATTRIBUTE_NAMES:
-//                dataSerializable = new GetAttributeNamesEntryProcessor();
-//                break;
-//            case GET_SESSION_STATE:
-//                dataSerializable = new GetSessionStateEntryProcessor();
-//                break;
+            case GET_ATTRIBUTE_NAMES:
+                dataSerializable = new GetAttributeNamesEntryProcessor();
+                break;
+            case GET_SESSION:
+                dataSerializable = new GetSessionEntryProcessor();
+                break;
             case SESSION_STATE:
                 dataSerializable =  new SessionState();
+                break;
+            case GET_LAT:
+                dataSerializable =  new GetLATEntryProcessor();
+                break;
+            case SET_LAT:
+                dataSerializable =  new SetLATEntryProcessor();
+                break;
+            case GET_CT:
+                dataSerializable =  new GetCTEntryProcessor();
+                break;
+            case SET_CT:
+                dataSerializable =  new SetCTEntryProcessor();
+                break;
+            case SET_SESSION:
+                dataSerializable =  new SetSessionEntryProcessor();
+                break;
+            case DOES_SESSION_EXIST:
+                dataSerializable =  new DoesSessionExistEntryProcessor();
                 break;
             default:
                 dataSerializable = null;

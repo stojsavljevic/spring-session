@@ -5,8 +5,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
-import com.hazelcast.internal.serialization.DataSerializerHook;
-import com.hazelcast.internal.serialization.impl.FactoryIdHelper;
 import com.hazelcast.map.EntryBackupProcessor;
 import com.hazelcast.map.EntryProcessor;
 import com.hazelcast.nio.ObjectDataInput;
@@ -40,12 +38,12 @@ public class UpdateAttributeEntryProcessor implements EntryProcessor<String, Ses
 
 	@Override
 	public int getFactoryId() {
-		return FactoryIdHelper.getFactoryId(FactoryIdHelper.WEB_DS_FACTORY, DataSerializerHook.F_ID_OFFSET_WEBMODULE);
+		return SpringSessionDataSerializerHook.F_ID;
 	}
 
 	@Override
 	public int getId() {
-		return 1;
+		return SpringSessionDataSerializerHook.SESSION_UPDATE;
 	}
 
 	@Override

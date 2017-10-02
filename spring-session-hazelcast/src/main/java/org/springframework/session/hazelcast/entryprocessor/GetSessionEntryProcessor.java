@@ -9,39 +9,37 @@ import com.hazelcast.nio.ObjectDataInput;
 import com.hazelcast.nio.ObjectDataOutput;
 import com.hazelcast.nio.serialization.IdentifiedDataSerializable;
 
-public final class DeleteSessionEntryProcessor
-        implements EntryProcessor<String, SessionState>,
-        EntryBackupProcessor<String, SessionState>, IdentifiedDataSerializable {
+public final class GetSessionEntryProcessor implements EntryProcessor<String, SessionState>,
+        IdentifiedDataSerializable {
 
-	private static final long serialVersionUID = 9115108723309182129L;
-	
-    public DeleteSessionEntryProcessor() {
+	private static final long serialVersionUID = 1367205300417577625L;
+
+	public GetSessionEntryProcessor() {
     }
 
     @Override
     public int getFactoryId() {
-    	return SpringSessionDataSerializerHook.F_ID;
+        return SpringSessionDataSerializerHook.F_ID;
     }
 
     @Override
     public int getId() {
-        return SpringSessionDataSerializerHook.SESSION_DELETE;
+        return SpringSessionDataSerializerHook.GET_SESSION;
     }
 
     @Override
     public Object process(Map.Entry<String, SessionState> entry) {
         SessionState sessionState = entry.getValue();
         if (sessionState == null) {
-            return Boolean.FALSE;
+            return null;
         }
-
-        entry.setValue(null);
-        return Boolean.TRUE;
+        entry.setValue(sessionState);
+        return sessionState;
     }
 
     @Override
     public EntryBackupProcessor<String, SessionState> getBackupProcessor() {
-        return this;
+        return null;
     }
 
     @Override
@@ -50,10 +48,5 @@ public final class DeleteSessionEntryProcessor
 
     @Override
     public void readData(ObjectDataInput in) throws IOException {
-    }
-
-    @Override
-    public void processBackup(Map.Entry<String, SessionState> entry) {
-    	process(entry);
     }
 }

@@ -1,28 +1,30 @@
 package org.springframework.session.hazelcast.entryprocessor;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.Map;
+import java.util.Map.Entry;
 
 import com.hazelcast.map.EntryBackupProcessor;
 import com.hazelcast.map.EntryProcessor;
 import com.hazelcast.nio.ObjectDataInput;
 import com.hazelcast.nio.ObjectDataOutput;
-import com.hazelcast.nio.serialization.Data;
 import com.hazelcast.nio.serialization.IdentifiedDataSerializable;
 
-public class GetAttributeEntryProcessor implements EntryProcessor<String, SessionState>, IdentifiedDataSerializable {
-
-	private static final long serialVersionUID = -504363582246966762L;
+public class SetCTEntryProcessor implements EntryProcessor<String, SessionState>, EntryBackupProcessor<String, SessionState>, IdentifiedDataSerializable {
 	
-	String attributeName;
-
-    public GetAttributeEntryProcessor(String attributeName) {
-        this.attributeName = attributeName;
+	private static final long serialVersionUID = 1356725895004395219L;
+	
+	private Instant creationTime;
+	
+	public SetCTEntryProcessor() {
+    	this(null);
     }
 
-    public GetAttributeEntryProcessor() {
-        this(null);
+    public SetCTEntryProcessor(Instant creationTime) {
+    	this.creationTime = creationTime;
     }
+
 
     @Override
     public int getFactoryId() {
@@ -31,31 +33,37 @@ public class GetAttributeEntryProcessor implements EntryProcessor<String, Sessio
 
     @Override
     public int getId() {
-        return SpringSessionDataSerializerHook.GET_ATTRIBUTE;
+        return SpringSessionDataSerializerHook.SET_CT;
     }
 
     @Override
-    public Data process(Map.Entry<String, SessionState> entry) {
+    public Boolean process(Map.Entry<String, SessionState> entry) {
         SessionState sessionState = entry.getValue();
         if (sessionState == null) {
-            return null;
+        	sessionState = new SessionState();
         }
+        sessionState.setCreationTime(this.creationTime);
         entry.setValue(sessionState);
-        return sessionState.getAttributes().get(attributeName);
+        return Boolean.TRUE;
     }
 
     @Override
     public EntryBackupProcessor<String, SessionState> getBackupProcessor() {
-        return null;
+        return this;
     }
 
     @Override
     public void readData(ObjectDataInput in) throws IOException {
-        attributeName = in.readUTF();
+    	this.creationTime = in.readObject();
     }
 
     @Override
     public void writeData(ObjectDataOutput out) throws IOException {
-        out.writeUTF(attributeName);
+    	out.writeObject(creationTime);
     }
+
+	@Override
+	public void processBackup(Entry<String, SessionState> entry) {
+		process(entry);
+	}
 }

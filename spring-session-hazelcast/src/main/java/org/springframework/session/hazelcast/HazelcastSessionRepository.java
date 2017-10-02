@@ -23,6 +23,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import javax.annotation.PostConstruct;
@@ -52,8 +53,16 @@ import org.springframework.session.events.SessionCreatedEvent;
 import org.springframework.session.events.SessionDeletedEvent;
 import org.springframework.session.events.SessionExpiredEvent;
 import org.springframework.session.hazelcast.entryprocessor.DeleteSessionEntryProcessor;
+import org.springframework.session.hazelcast.entryprocessor.DoesSessionExistEntryProcessor;
 import org.springframework.session.hazelcast.entryprocessor.GetAttributeEntryProcessor;
+import org.springframework.session.hazelcast.entryprocessor.GetAttributeNamesEntryProcessor;
+import org.springframework.session.hazelcast.entryprocessor.GetCTEntryProcessor;
+import org.springframework.session.hazelcast.entryprocessor.GetLATEntryProcessor;
+import org.springframework.session.hazelcast.entryprocessor.GetSessionEntryProcessor;
 import org.springframework.session.hazelcast.entryprocessor.SessionState;
+import org.springframework.session.hazelcast.entryprocessor.SetCTEntryProcessor;
+import org.springframework.session.hazelcast.entryprocessor.SetLATEntryProcessor;
+import org.springframework.session.hazelcast.entryprocessor.SetSessionEntryProcessor;
 import org.springframework.session.hazelcast.entryprocessor.UpdateAttributeEntryProcessor;
 import org.springframework.util.Assert;
 
@@ -131,6 +140,7 @@ public class HazelcastSessionRepository implements
 
 	private final IMap<String, SessionState> sessions;
 	
+	// FIXME Alex
 	private volatile SerializationServiceSupport sss;
 
 	private HazelcastFlushMode hazelcastFlushMode = HazelcastFlushMode.ON_SAVE;
@@ -223,6 +233,12 @@ public class HazelcastSessionRepository implements
 //					session.getMaxInactiveInterval().getSeconds(), TimeUnit.SECONDS);
 //			session.markUnchanged();
 //		}
+		
+		if(!session.isImmediate() && session.isChanged()) {
+			SetSessionEntryProcessor entryProcessor = new SetSessionEntryProcessor(session.getDelegate());
+	        executeOnKey(session.sessionId, entryProcessor);
+		}
+		
 	}
 
 	public HazelcastSession findById(String id) {
@@ -234,7 +250,13 @@ public class HazelcastSessionRepository implements
 //			deleteById(saved.getId());
 //			return null;
 //		}
-		return new HazelcastSession(new MapSession(id));
+		
+		DoesSessionExistEntryProcessor entryProcessor = new DoesSessionExistEntryProcessor();
+		boolean exist = (boolean) executeOnKey(id, entryProcessor);
+		if(!exist) {
+			return null;
+		}
+		return new HazelcastSession(id);
 	}
 
 	public void deleteById(String id) {
@@ -254,6 +276,7 @@ public class HazelcastSessionRepository implements
 //			sessionMap.put(session.getId(), new HazelcastSession(session));
 //		}
 //		return sessionMap;
+		// FIXME Alex
 		return Collections.emptyMap();
 	}
 
@@ -280,15 +303,10 @@ public class HazelcastSessionRepository implements
 //				.publishEvent(new SessionDeletedEvent(this, event.getOldValue()));
 	}
 	
-	
-	Object executeOnKey(String sessionId, EntryProcessor processor) throws Exception {
-		try {
-			return sessions.executeOnKey(sessionId, processor);
-		} catch (Exception e) {
-			logger.debug("Cannot connect hazelcast server", e);
-			throw e;
-		}
+	Object executeOnKey(String sessionId, EntryProcessor<String, SessionState> processor) {
+		return sessions.executeOnKey(sessionId, processor);
 	}
+
 	
 	/**
 	 * A custom implementation of {@link Session} that uses a {@link MapSession} as the
@@ -298,19 +316,22 @@ public class HazelcastSessionRepository implements
 	 */
 	final class HazelcastSession implements Session {
 
-		private final MapSession delegate;
 		private boolean changed;
 		private String originalId;
 		private String sessionId;
+		
+		private SessionState delegate;
 
 		/**
 		 * Creates a new instance ensuring to mark all of the new attributes to be
 		 * persisted in the next save operation.
 		 */
 		HazelcastSession() {
-			this(new MapSession());
+			this(UUID.randomUUID().toString());
+			
+			setCreationTime();
 			this.changed = true;
-			flushImmediateIfNecessary();
+			//flushImmediateIfNecessary();
 		}
 
 		/**
@@ -318,95 +339,140 @@ public class HazelcastSessionRepository implements
 		 * @param cached the {@link MapSession} that represents the persisted session that
 		 * was retrieved. Cannot be {@code null}.
 		 */
-		HazelcastSession(MapSession cached) {
-			Assert.notNull(cached, "MapSession cannot be null");
-			this.delegate = cached;
-			this.originalId = cached.getId();
-			this.sessionId = this.delegate.getId();
+		HazelcastSession(String id) {
+			Assert.notNull(id, "ID cannot be null");
+//			this.originalId = cached.getId();
+			this.sessionId = id;
+			if(!isImmediate()) {
+				GetSessionEntryProcessor entryProcessor = new GetSessionEntryProcessor();
+				this.delegate = (SessionState) executeOnKey(this.sessionId, entryProcessor);
+			}
+			if(this.delegate == null) {
+				this.delegate = new SessionState();
+			}
 		}
 
 		public void setLastAccessedTime(Instant lastAccessedTime) {
-			this.delegate.setLastAccessedTime(lastAccessedTime);
-			this.changed = true;
-			flushImmediateIfNecessary();
+			if(isImmediate()) {
+				SetLATEntryProcessor entryProcessor = new SetLATEntryProcessor(lastAccessedTime);
+		        executeOnKey(this.sessionId, entryProcessor);
+			} else {
+				this.changed = true;
+				delegate.setLastAccessedTime(lastAccessedTime);
+			}
 		}
 
 		public boolean isExpired() {
-			return this.delegate.isExpired();
+			// FIXME Alex
+//			return this.delegate.isExpired();
+			return false;
 		}
 
 		public Instant getCreationTime() {
-			return this.delegate.getCreationTime();
+			Instant inst;
+			if(isImmediate()) {
+				GetCTEntryProcessor entryProcessor = new GetCTEntryProcessor();
+				inst = (Instant) executeOnKey(this.sessionId, entryProcessor);
+			} else {
+				inst = this.delegate.getCreationTime();
+			}
+			return inst != null ? inst : Instant.now();
+		}
+		
+		public void setCreationTime() {
+			Instant inst = Instant.now();
+			if(isImmediate()) {
+				SetCTEntryProcessor entryProcessor = new SetCTEntryProcessor(inst);
+				executeOnKey(this.sessionId, entryProcessor);
+			} else {
+				this.delegate.setCreationTime(inst);
+			}
 		}
 
 		public String getId() {
-			return this.delegate.getId();
+			return this.sessionId;
 		}
 
 		public String changeSessionId() {
-			this.changed = true;
-			return this.delegate.changeSessionId();
+			if (isImmediate()) {
+				this.delegate = (SessionState) executeOnKey(this.sessionId, new GetSessionEntryProcessor());
+				
+				this.sessionId = UUID.randomUUID().toString();
+				
+				executeOnKey(this.sessionId, new SetSessionEntryProcessor(this.delegate));
+			} else {
+				this.sessionId = UUID.randomUUID().toString();
+			}
+			return this.sessionId;
 		}
 
 		public Instant getLastAccessedTime() {
-			return this.delegate.getLastAccessedTime();
+			Instant inst;
+			if (isImmediate()) {
+				GetLATEntryProcessor entryProcessor = new GetLATEntryProcessor();
+				inst = (Instant) executeOnKey(this.sessionId, entryProcessor);
+			} else {
+				inst = this.delegate.getLastAccessedTime();
+			}
+	        return inst != null ? inst : Instant.now();
 		}
 
 		public void setMaxInactiveInterval(Duration interval) {
-			this.delegate.setMaxInactiveInterval(interval);
-			this.changed = true;
-			flushImmediateIfNecessary();
+			// FIXME Alex
+			if(isImmediate()) {
+				
+			} else {
+				this.delegate.setMaxInactiveInterval(interval);
+				this.changed = true;
+			}
+			//flushImmediateIfNecessary();
 		}
 
 		public Duration getMaxInactiveInterval() {
-			return this.delegate.getMaxInactiveInterval();
+			// FIXME Alex
+//			return this.delegate.getMaxInactiveInterval();
+			return Duration.ZERO;
 		}
 
 		public Object getAttribute(String attributeName) {
-			
-			// System.out.println("::::::::::::::::::::::::: GET ::::::::::::::::::::");
-			
-			GetAttributeEntryProcessor entryProcessor = new GetAttributeEntryProcessor(attributeName);
-	        try {
-				Object executeOnKey = executeOnKey(this.sessionId, entryProcessor);
-				return executeOnKey;
-			} catch (Exception e) {
-				// TODO Alex
-				e.printStackTrace();
-				return null;
+			if (isImmediate()) {
+				GetAttributeEntryProcessor entryProcessor = new GetAttributeEntryProcessor(attributeName);
+		        return executeOnKey(this.sessionId, entryProcessor);
+			} else {
+				return sss.getSerializationService().toObject(this.delegate.getAttribute(attributeName));
 			}
 		}
 
 		public Set<String> getAttributeNames() {
-			return this.delegate.getAttributeNames();
+			if (isImmediate()) {
+				Object attributeNames = executeOnKey(this.sessionId, new GetAttributeNamesEntryProcessor());
+				if(attributeNames == null) {
+					return Collections.emptySet();
+				}
+				return (Set<String>) attributeNames;
+			} else {
+				return this.delegate.getAttributes().keySet();
+			}
 		}
 
 		public void setAttribute(String attributeName, Object attributeValue) {
-//			this.delegate.setAttribute(attributeName, attributeValue);
-//			this.changed = true;
-//			flushImmediateIfNecessary();
-			
 			Data dataValue = (attributeValue == null) ? null : sss.getSerializationService().toData(attributeValue);
-			UpdateAttributeEntryProcessor sessionUpdateProcessor = new UpdateAttributeEntryProcessor(attributeName, dataValue);
-	        try {
+			if (isImmediate()) {
+				UpdateAttributeEntryProcessor sessionUpdateProcessor = new UpdateAttributeEntryProcessor(attributeName, dataValue);
 				executeOnKey(sessionId, sessionUpdateProcessor);
-			} catch (Exception e) {
-				// TODO Alex
-				e.printStackTrace();
+			} else {
+				this.delegate.setAttribute(attributeName, dataValue);
+				this.changed = true;
 			}
 		}
 
 		public void removeAttribute(String attributeName) {
-//			this.delegate.removeAttribute(attributeName);
-//			this.changed = true;
-//			flushImmediateIfNecessary();
-			
-			DeleteSessionEntryProcessor entryProcessor = new DeleteSessionEntryProcessor(true);
-	        try {
-				executeOnKey(sessionId, entryProcessor);
-			} catch (Exception e) {
-				// TODO Alex
-				e.printStackTrace();
+			if (isImmediate()) {
+				UpdateAttributeEntryProcessor sessionUpdateProcessor = new UpdateAttributeEntryProcessor(attributeName, null);
+				executeOnKey(sessionId, sessionUpdateProcessor);
+			} else {
+				this.delegate.setAttribute(attributeName, null);
+				this.changed = true;
 			}
 		}
 
@@ -418,16 +484,19 @@ public class HazelcastSessionRepository implements
 			this.changed = false;
 		}
 
-		MapSession getDelegate() {
+		SessionState getDelegate() {
 			return this.delegate;
 		}
 
-		private void flushImmediateIfNecessary() {
-			if (HazelcastSessionRepository.this.hazelcastFlushMode == HazelcastFlushMode.IMMEDIATE) {
-				HazelcastSessionRepository.this.save(this);
-			}
+//		private void flushImmediateIfNecessary() {
+//			if (isImmediate()) {
+//				HazelcastSessionRepository.this.save(this);
+//			}
+//		}
+		
+		private boolean isImmediate() {
+			return HazelcastSessionRepository.this.hazelcastFlushMode == HazelcastFlushMode.IMMEDIATE;
 		}
-
 	}
 
 }
